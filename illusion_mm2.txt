@@ -1,0 +1,863 @@
+--// ILLUSION HUB — MM2
+--// Aimbot | ESP Role | ESP GunDrop | Silent Aim | Server Invis | Coin Auto Farm | Keep Gun
+--// GUI: SELUX Layout (Full restored with Live Stats, Fix Slider, Touch Drag & Extra MISC)
+
+if getgenv().ILLUSION_HUB_LOADED then
+    warn("[ILLUSION HUB] Script is already running!")
+    return
+end
+getgenv().ILLUSION_HUB_LOADED = true
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local TeleportService  = game:GetService("TeleportService")
+local HttpService      = game:GetService("HttpService")
+
+local LP     = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse  = LP:GetMouse()
+
+local GuiParent = (gethui and gethui()) or LP:WaitForChild("PlayerGui")
+local Old = GuiParent:FindFirstChild("ILLUSION_HUB_MM2")
+if Old then Old:Destroy() end
+
+--// Auto Copy Discord Link
+pcall(function()
+    local inviteLink = "https://discord.gg/zj9TEbPNuz"
+    if setclipboard then setclipboard(inviteLink)
+    elseif toClipboard then toClipboard(inviteLink) end
+end)
+
+--// ============================================================
+--// CONFIG
+--// ============================================================
+
+local Cfg = {
+    AimbotOn         = false,
+    AimbotFOV        = 150,
+    AimbotSmooth     = 0.18,
+    AimbotRMB        = true,
+    AimbotVisCheck   = false,
+    SilentAimOn      = false,
+    ESPRoleOn        = false,
+    ESPDistOn        = true,
+    ESPBoxOn         = true,
+    ESPGunOn         = false,
+    InvisOn          = false,
+    FlyOn            = false,
+    FlySpeed         = 50,
+    NoclipOn         = false,
+    SpeedOn          = false,
+    SpeedVal         = 16,
+    JumpOn           = false,
+    JumpVal          = 50,
+    InfJumpOn        = false,
+    AutoJumpOn       = false,
+    AutoCoinOn       = false,
+    CoinSpeed        = 30,
+    KeepGunOn        = false,
+}
+
+--// ============================================================
+--// COLORS
+--// ============================================================
+
+local C = {
+    BG       = Color3.fromRGB(10,  10,  15),
+    Panel    = Color3.fromRGB(14,  14,  20),
+    Card     = Color3.fromRGB(19,  20,  28),
+    Card2    = Color3.fromRGB(26,  27,  38),
+    Stroke   = Color3.fromRGB(36,  38,  54),
+    Purple   = Color3.fromRGB(122, 82,  228),
+    PurpleDm = Color3.fromRGB(68,  44,  130),
+    Green    = Color3.fromRGB(52,  215, 125),
+    Red      = Color3.fromRGB(222, 55,  75),
+    Blue     = Color3.fromRGB(75,  135, 255),
+    Text     = Color3.fromRGB(238, 240, 252),
+    Sub      = Color3.fromRGB(125, 128, 152),
+    White    = Color3.fromRGB(255, 255, 255),
+    OffGray  = Color3.fromRGB(38,  40,  56),
+}
+
+local ROLE_COLOR = {
+    murderer = C.Red,
+    sheriff  = C.Blue,
+    innocent = C.Green,
+}
+
+--// ============================================================
+--// UTIL FUNCTIONS
+--// ============================================================
+
+local function Tw(obj, t, props)
+    if obj and obj.Parent then
+        return TweenService:Create(obj, TweenInfo.new(t, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), props)
+    end
+end
+
+local function Rnd(obj, r)
+    local u = Instance.new("UICorner"); u.CornerRadius = UDim.new(0, r or 8); u.Parent = obj
+end
+
+local function Str(obj, col, th)
+    local s = Instance.new("UIStroke")
+    s.Color = col or C.Stroke; s.Thickness = th or 1
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = obj
+end
+
+local function Lbl(par, txt, sz, col, ax)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Text = txt or ""; l.TextSize = sz or 13
+    l.TextColor3 = col or C.Text
+    l.Font = Enum.Font.GothamMedium
+    l.TextXAlignment = ax or Enum.TextXAlignment.Left
+    l.TextWrapped = true; l.Parent = par
+    return l
+end
+
+local function W2V(pos)
+    local v, on = Camera:WorldToViewportPoint(pos)
+    return Vector2.new(v.X, v.Y), on, v.Z
+end
+
+local function MakeDrag(frame, handle)
+    local d, ds, sp = false
+    handle.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            d = true; ds = i.Position; sp = frame.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local dl = i.Position - ds
+            frame.Position = UDim2.new(sp.X.Scale, sp.X.Offset + dl.X, sp.Y.Scale, sp.Y.Offset + dl.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then d = false end
+    end)
+end
+
+--// ============================================================
+--// FORWARD DECLS
+--// ============================================================
+
+local ClearRoleESP, ClearGunESP, ApplyInvis, ToggleFly
+local ESPObjects, GunESPObjects = {}, {}
+
+--// ============================================================
+--// SCREEN GUI
+--// ============================================================
+
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "ILLUSION_HUB_MM2"; Gui.ResetOnSpawn = false
+Gui.IgnoreGuiInset = true; Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+Gui.Parent = GuiParent
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"; Main.Size = UDim2.fromOffset(560, 400)
+Main.Position = UDim2.fromScale(0.5, 0.5)
+Main.AnchorPoint = Vector2.new(0.5, 0.5)
+Main.BackgroundColor3 = C.BG; Main.Parent = Gui
+Rnd(Main, 12); Str(Main, C.Stroke, 1.2)
+
+--// FLOATING TOGGLE BUTTON
+local ToggleBtn = Instance.new("ImageButton")
+ToggleBtn.Name             = "IllusionHubToggle"
+ToggleBtn.Size             = UDim2.fromOffset(44, 44)
+ToggleBtn.Position         = UDim2.new(0, 8, 0.42, 0)
+ToggleBtn.BackgroundColor3 = C.Card
+ToggleBtn.AutoButtonColor  = false
+ToggleBtn.ZIndex           = 999
+ToggleBtn.Parent           = Gui
+Rnd(ToggleBtn, 12)
+
+local TBStroke = Instance.new("UIStroke")
+TBStroke.Thickness = 1.5; TBStroke.Color = C.Purple
+TBStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; TBStroke.Parent = ToggleBtn
+
+local TBLabel = Instance.new("TextLabel")
+TBLabel.BackgroundTransparency = 1; TBLabel.Size = UDim2.fromScale(1, 1)
+TBLabel.Text = "IH"; TBLabel.TextColor3 = C.Purple; TBLabel.TextSize = 14; TBLabel.Font = Enum.Font.GothamBlack
+TBLabel.TextXAlignment = Enum.TextXAlignment.Center; TBLabel.Parent = ToggleBtn
+
+MakeDrag(ToggleBtn, ToggleBtn)
+ToggleBtn.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
+
+--// TOP BAR
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 48)
+TopBar.BackgroundColor3 = C.Panel; TopBar.BorderSizePixel = 0; TopBar.Parent = Main
+local TR = Instance.new("UICorner"); TR.CornerRadius = UDim.new(0, 12); TR.Parent = TopBar
+local TF = Instance.new("Frame"); TF.Size = UDim2.new(1, 0, 0, 12)
+TF.Position = UDim2.new(0, 0, 1, -12); TF.BackgroundColor3 = C.Panel; TF.BorderSizePixel = 0; TF.Parent = TopBar
+
+MakeDrag(Main, TopBar)
+
+local Dot = Instance.new("Frame")
+Dot.Size = UDim2.fromOffset(7, 7); Dot.Position = UDim2.fromOffset(14, 20)
+Dot.BackgroundColor3 = C.Purple; Dot.Parent = TopBar; Rnd(Dot, 4)
+
+local TitleL = Lbl(TopBar, "ILLUSION HUB", 15, C.Text)
+TitleL.Font = Enum.Font.GothamBlack
+TitleL.Position = UDim2.fromOffset(28, 0); TitleL.Size = UDim2.fromOffset(120, 48)
+
+local TabRow = Instance.new("Frame")
+TabRow.Size = UDim2.new(1, -320, 0, 30)
+TabRow.Position = UDim2.fromOffset(145, 9)
+TabRow.BackgroundTransparency = 1; TabRow.Parent = TopBar
+
+local TRL = Instance.new("UIListLayout")
+TRL.FillDirection = Enum.FillDirection.Horizontal
+TRL.VerticalAlignment = Enum.VerticalAlignment.Center
+TRL.Padding = UDim.new(0, 5); TRL.Parent = TabRow
+
+local StatusL = Lbl(TopBar, "● idle", 10, C.Sub)
+StatusL.Position = UDim2.new(1, -155, 0, 6); StatusL.Size = UDim2.fromOffset(80, 16)
+
+local RoleDispL = Lbl(TopBar, "role: —", 10, C.Sub)
+RoleDispL.Position = UDim2.new(1, -155, 0, 26); RoleDispL.Size = UDim2.fromOffset(80, 16)
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.fromOffset(26, 26); CloseBtn.Position = UDim2.new(1, -36, 0.5, -13)
+CloseBtn.BackgroundColor3 = C.Card2; CloseBtn.Text = "×"; CloseBtn.TextColor3 = C.Sub
+CloseBtn.TextSize = 16; CloseBtn.Font = Enum.Font.GothamBold; CloseBtn.Parent = TopBar
+Rnd(CloseBtn, 6)
+CloseBtn.MouseButton1Click:Connect(function() Main.Visible = false end)
+
+--// ============================================================
+--// CONTENT AREA (2 Columns: Left Controls + Right Stats)
+--// ============================================================
+
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, 0, 1, -82)
+Content.Position = UDim2.fromOffset(0, 48)
+Content.BackgroundTransparency = 1; Content.Parent = Main
+
+local LeftPanel = Instance.new("Frame")
+LeftPanel.Size = UDim2.new(0.6, -6, 1, 0)
+LeftPanel.BackgroundTransparency = 1; LeftPanel.Parent = Content
+
+local RightPanel = Instance.new("Frame")
+RightPanel.Size = UDim2.new(0.4, -6, 1, 0)
+RightPanel.Position = UDim2.new(0.6, 6, 0, 0)
+RightPanel.BackgroundTransparency = 1; RightPanel.Parent = Content
+
+local Pages, TabBtns, CurTab = {}, {}, nil
+
+local function NewPage(name)
+    local sf = Instance.new("ScrollingFrame")
+    sf.Size = UDim2.fromScale(1, 1); sf.BackgroundTransparency = 1; sf.BorderSizePixel = 0
+    sf.ScrollBarThickness = 2; sf.ScrollBarImageColor3 = C.Purple
+    sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    sf.Visible = false; sf.Parent = LeftPanel
+
+    local L = Instance.new("UIListLayout")
+    L.Padding = UDim.new(0, 6); L.SortOrder = Enum.SortOrder.LayoutOrder; L.Parent = sf
+
+    local P = Instance.new("UIPadding")
+    P.PaddingTop = UDim.new(0, 8); P.PaddingLeft = UDim.new(0, 10)
+    P.PaddingRight = UDim.new(0, 10); P.PaddingBottom = UDim.new(0, 8); P.Parent = sf
+
+    Pages[name] = sf
+end
+
+local function OpenTab(name)
+    if CurTab and Pages[CurTab] then
+        Pages[CurTab].Visible = false
+        if TabBtns[CurTab] then
+            Tw(TabBtns[CurTab], 0.12, { BackgroundColor3 = C.Card2, TextColor3 = C.Sub }):Play()
+        end
+    end
+    CurTab = name
+    Pages[name].Visible = true
+    if TabBtns[name] then
+        Tw(TabBtns[name], 0.12, { BackgroundColor3 = C.Purple, TextColor3 = C.White }):Play()
+    end
+end
+
+local function MakeTab(name)
+    NewPage(name)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.fromOffset(68, 26); Btn.BackgroundColor3 = C.Card2
+    Btn.Text = name; Btn.TextColor3 = C.Sub; Btn.TextSize = 11; Btn.Font = Enum.Font.GothamMedium
+    Btn.AutoButtonColor = false; Btn.Parent = TabRow
+    Rnd(Btn, 6); TabBtns[name] = Btn
+    Btn.MouseButton1Click:Connect(function() OpenTab(name) end)
+end
+
+MakeTab("AIM"); MakeTab("ESP"); MakeTab("PLAYER"); MakeTab("MISC")
+
+--// ============================================================
+--// GUI COMPONENTS (Fixed Slider & Fixed Titles)
+--// ============================================================
+
+local function Section(page, text)
+    local H = Instance.new("Frame")
+    H.Size = UDim2.new(1, 0, 0, 20); H.BackgroundTransparency = 1; H.Parent = Pages[page]
+    local Bar = Instance.new("Frame")
+    Bar.Size = UDim2.fromOffset(2, 12); Bar.Position = UDim2.fromOffset(0, 4)
+    Bar.BackgroundColor3 = C.Purple; Bar.BorderSizePixel = 0; Bar.Parent = H; Rnd(Bar, 2)
+
+    local L = Lbl(H, text:upper(), 10, C.Sub)
+    L.Font = Enum.Font.GothamBold
+    L.Size = UDim2.new(1, -10, 1, 0); L.Position = UDim2.fromOffset(8, 0)
+end
+
+local function Toggle(page, label, desc, default, onChange)
+    local val = default or false
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, 0, 0, desc and 52 or 40)
+    Row.BackgroundColor3 = C.Card; Row.Parent = Pages[page]
+    Rnd(Row, 8); Str(Row, C.Stroke, 1)
+
+    local L = Lbl(Row, label, 12, C.Text)
+    L.Position = UDim2.fromOffset(12, 6); L.Size = UDim2.new(1, -70, 0, 16)
+    L.Font = Enum.Font.GothamSemibold
+
+    if desc then
+        local D = Lbl(Row, desc, 10, C.Sub)
+        D.Position = UDim2.fromOffset(12, 26); D.Size = UDim2.new(1, -70, 0, 16)
+    end
+
+    local Track = Instance.new("Frame")
+    Track.Size = UDim2.fromOffset(38, 18); Track.Position = UDim2.new(1, -48, 0.5, -9)
+    Track.BackgroundColor3 = val and C.Green or C.OffGray; Track.Parent = Row; Rnd(Track, 18)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.fromOffset(12, 12); Knob.Position = val and UDim2.new(1, -15, 0.5, -6) or UDim2.fromOffset(3, 3)
+    Knob.BackgroundColor3 = C.White; Knob.Parent = Track; Rnd(Knob, 12)
+
+    local TBtn = Instance.new("TextButton")
+    TBtn.Size = UDim2.fromScale(1, 1); TBtn.BackgroundTransparency = 1; TBtn.Text = ""; TBtn.Parent = Track
+
+    TBtn.MouseButton1Click:Connect(function()
+        val = not val
+        Tw(Track, 0.12, { BackgroundColor3 = val and C.Green or C.OffGray }):Play()
+        Tw(Knob, 0.12, { Position = val and UDim2.new(1, -15, 0.5, -6) or UDim2.fromOffset(3, 3) }):Play()
+        if onChange then pcall(onChange, val) end
+    end)
+end
+
+local function SliderRow(page, label, min, max, default, fmt, onChange)
+    local val = default
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, 0, 0, 54); Row.BackgroundColor3 = C.Card; Row.Parent = Pages[page]
+    Rnd(Row, 8); Str(Row, C.Stroke, 1)
+
+    -- FIXED: Clear Text Label for Slider
+    local L = Lbl(Row, label, 12, C.Text)
+    L.Position = UDim2.fromOffset(12, 6); L.Size = UDim2.new(1, -70, 0, 16)
+    L.Font = Enum.Font.GothamSemibold
+
+    local VL = Lbl(Row, (fmt or "%d"):format(val), 11, C.Purple, Enum.TextXAlignment.Right)
+    VL.Position = UDim2.new(1, -58, 0, 6); VL.Size = UDim2.fromOffset(48, 16)
+
+    local TBG = Instance.new("Frame")
+    TBG.Size = UDim2.new(1, -24, 0, 6); TBG.Position = UDim2.fromOffset(12, 34)
+    TBG.BackgroundColor3 = C.Card2; TBG.Parent = Row; Rnd(TBG, 4)
+
+    local Fill = Instance.new("Frame")
+    Fill.BackgroundColor3 = C.Purple
+    Fill.Size = UDim2.new((val - min) / (max - min), 0, 1, 0); Fill.Parent = TBG; Rnd(Fill, 4)
+
+    local Knob = Instance.new("Frame")
+    Knob.Size = UDim2.fromOffset(12, 12); Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    Knob.Position = UDim2.new((val - min) / (max - min), 0, 0.5, 0)
+    Knob.BackgroundColor3 = C.White; Knob.Parent = TBG; Rnd(Knob, 12)
+
+    -- FIXED: Touch / Mouse Drag Support
+    local drg = false
+    local function Update(px)
+        local pct = math.clamp((px - TBG.AbsolutePosition.X) / TBG.AbsoluteSize.X, 0, 1)
+        val = math.floor(min + (max - min) * pct)
+        Fill.Size = UDim2.new(pct, 0, 1, 0); Knob.Position = UDim2.new(pct, 0, 0.5, 0)
+        VL.Text = (fmt or "%d"):format(val)
+        if onChange then onChange(val) end
+    end
+
+    TBG.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            drg = true; Update(i.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(i)
+        if drg and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            Update(i.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            drg = false
+        end
+    end)
+end
+
+local function ButtonRow(page, label, onClick)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, 0, 0, 36); Row.BackgroundColor3 = C.Card; Row.Parent = Pages[page]
+    Rnd(Row, 8); Str(Row, C.Stroke, 1)
+
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.fromScale(1, 1); Btn.BackgroundTransparency = 1
+    Btn.Text = label; Btn.TextColor3 = C.White; Btn.TextSize = 12
+    Btn.Font = Enum.Font.GothamBold; Btn.Parent = Row
+
+    Btn.MouseButton1Click:Connect(function()
+        Tw(Row, 0.1, { BackgroundColor3 = C.Purple }):Play()
+        task.wait(0.1)
+        Tw(Row, 0.15, { BackgroundColor3 = C.Card }):Play()
+        if onClick then onClick() end
+    end)
+end
+
+--// ============================================================
+--// RIGHT PANEL — LIVE STATS (SELUX RESTORED)
+--// ============================================================
+
+local RightScroll = Instance.new("ScrollingFrame")
+RightScroll.Size = UDim2.fromScale(1, 1); RightScroll.BackgroundTransparency = 1; RightScroll.BorderSizePixel = 0
+RightScroll.ScrollBarThickness = 0; RightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+RightScroll.Parent = RightPanel
+
+local RSL = Instance.new("UIListLayout")
+RSL.Padding = UDim.new(0, 8); RSL.SortOrder = Enum.SortOrder.LayoutOrder; RSL.Parent = RightScroll
+
+local RPAD = Instance.new("UIPadding")
+RPAD.PaddingTop = UDim.new(0, 8); RPAD.PaddingRight = UDim.new(0, 10); RPAD.Parent = RightScroll
+
+local function StatBox(title)
+    local Box = Instance.new("Frame")
+    Box.Size = UDim2.new(1, 0, 0, 0); Box.AutomaticSize = Enum.AutomaticSize.Y
+    Box.BackgroundColor3 = C.Card; Box.Parent = RightScroll
+    Rnd(Box, 8); Str(Box, C.Stroke, 1)
+
+    local BL = Instance.new("UIListLayout")
+    BL.Padding = UDim.new(0, 4); BL.SortOrder = Enum.SortOrder.LayoutOrder; BL.Parent = Box
+
+    local BP = Instance.new("UIPadding")
+    BP.PaddingTop = UDim.new(0, 8); BP.PaddingBottom = UDim.new(0, 10)
+    BP.PaddingLeft = UDim.new(0, 10); BP.PaddingRight = UDim.new(0, 10); BP.Parent = Box
+
+    local TitleL2 = Lbl(Box, title:upper(), 10, C.Sub)
+    TitleL2.Font = Enum.Font.GothamBold; TitleL2.Size = UDim2.new(1, 0, 0, 14)
+
+    local Div = Instance.new("Frame")
+    Div.Size = UDim2.new(1, 0, 0, 1); Div.BackgroundColor3 = C.Stroke; Div.BorderSizePixel = 0; Div.Parent = Box
+
+    local lines = {}
+    local function AddLine(k, v, col)
+        local Row2 = Instance.new("Frame")
+        Row2.Size = UDim2.new(1, 0, 0, 16); Row2.BackgroundTransparency = 1; Row2.Parent = Box
+
+        local KL = Lbl(Row2, k, 10, C.Sub); KL.Size = UDim2.fromOffset(72, 16)
+        local VL2 = Lbl(Row2, tostring(v), 10, col or C.Text, Enum.TextXAlignment.Left)
+        VL2.Position = UDim2.fromOffset(76, 0); VL2.Size = UDim2.new(1, -76, 0, 16)
+
+        lines[k] = VL2
+    end
+
+    return { Box = Box, AddLine = AddLine, Set = function(k, v, col)
+        if lines[k] then lines[k].Text = tostring(v); if col then lines[k].TextColor3 = col end end
+    end }
+end
+
+local LiveBox = StatBox("LIVE")
+LiveBox.AddLine("murderer",  "—",  C.Red)
+LiveBox.AddLine("sheriff",   "—",  C.Blue)
+LiveBox.AddLine("my role",   "—",  C.Sub)
+
+local ActiveBox = StatBox("ACTIVE")
+ActiveBox.AddLine("silent aim", "off", C.Sub)
+ActiveBox.AddLine("esp",        "off", C.Sub)
+ActiveBox.AddLine("invis",      "off", C.Sub)
+ActiveBox.AddLine("autocoin",   "off", C.Sub)
+
+--// BOTTOM BAR
+local BotBar = Instance.new("Frame")
+BotBar.Size = UDim2.new(1, 0, 0, 32); BotBar.Position = UDim2.new(0, 0, 1, -32)
+BotBar.BackgroundColor3 = C.Panel; BotBar.BorderSizePixel = 0; BotBar.ZIndex = 10; BotBar.Parent = Main
+local BBR = Instance.new("UICorner"); BBR.CornerRadius = UDim.new(0, 12); BBR.Parent = BotBar
+
+local BotL = Lbl(BotBar, "● illusion hub • mm2", 10, C.Sub)
+BotL.Position = UDim2.fromOffset(12, 0); BotL.Size = UDim2.fromOffset(200, 32)
+
+--// ============================================================
+--// PAGE CONTENT CREATION
+--// ============================================================
+
+-- AIM PAGE
+Section("AIM", "⊕ silent aim")
+Toggle("AIM", "Enable Silent Aim", "Bullets redirect to Murderer", false, function(v)
+    Cfg.SilentAimOn = v
+    ActiveBox.Set("silent aim", v and "on" or "off", v and C.Green or C.Sub)
+end)
+
+-- ESP PAGE
+Section("ESP", "◈ role esp")
+Toggle("ESP", "Enable Role ESP", "Show Murderer / Sheriff / Innocent", false, function(v)
+    Cfg.ESPRoleOn = v
+    ActiveBox.Set("esp", v and "on" or "off", v and C.Green or C.Sub)
+    if not v then ClearRoleESP() end
+end)
+
+Section("ESP", "◈ gun drop esp")
+Toggle("ESP", "Enable Gun ESP", "Show dynamic Gun Drop location", false, function(v)
+    Cfg.ESPGunOn = v
+    if not v then ClearGunESP() end
+end)
+
+-- PLAYER PAGE
+Section("PLAYER", "✈ movement & fly")
+Toggle("PLAYER", "Enable Fly", "Universal Gyro Fly", false, function(v) Cfg.FlyOn = v ToggleFly(v) end)
+SliderRow("PLAYER", "Fly Speed", 10, 200, 50, "%d", function(v) Cfg.FlySpeed = v end)
+Toggle("PLAYER", "Noclip", "Walk through obstacles", false, function(v) Cfg.NoclipOn = v end)
+Toggle("PLAYER", "Infinite Jump", "Jump limitlessly in air", false, function(v) Cfg.InfJumpOn = v end)
+Toggle("PLAYER", "Auto Jump", "Jump automatically using Humanoid status", false, function(v) Cfg.AutoJumpOn = v end)
+
+Section("PLAYER", "⚡ stats modifier")
+Toggle("PLAYER", "Enable WalkSpeed", "Apply custom walkspeed", false, function(v) Cfg.SpeedOn = v end)
+SliderRow("PLAYER", "WalkSpeed Value", 16, 200, 16, "%d", function(v) Cfg.SpeedVal = v end)
+Toggle("PLAYER", "Enable JumpPower", "Apply custom jump power", false, function(v) Cfg.JumpOn = v end)
+SliderRow("PLAYER", "JumpPower Value", 50, 300, 50, "%d", function(v) Cfg.JumpVal = v end)
+
+Section("PLAYER", "🪙 auto farm coins & gun")
+Toggle("PLAYER", "Auto Farm Coins (Tween)", "Tween to nearest coins instantly", false, function(v)
+    Cfg.AutoCoinOn = v
+    ActiveBox.Set("autocoin", v and "on" or "off", v and C.Green or C.Sub)
+end)
+SliderRow("PLAYER", "Coin Farm Speed", 10, 100, 30, "%d", function(v) Cfg.CoinSpeed = v end)
+Toggle("PLAYER", "Keep Gun (Auto Grab Gun)", "Teleport to dropped gun then return 0.2s", false, function(v) Cfg.KeepGunOn = v end)
+
+-- MISC PAGE (FULLY RESTORED & EXTENDED)
+Section("MISC", "👤 server invis")
+Toggle("MISC", "Server Invis", "You are hidden from others on server", false, function(v)
+    Cfg.InvisOn = v
+    ActiveBox.Set("invis", v and "on" or "off", v and C.Green or C.Sub)
+    ApplyInvis(v)
+end)
+
+Section("MISC", "⚙️ performance & fflags")
+Toggle("MISC", "Anti Lag / Boost FPS", "Remove textures & particles for max FPS", false, function(v)
+    if v then
+        for _, obj in pairs(game:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+            elseif obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("ParticleEmitter") then
+                obj:Destroy()
+            end
+        end
+    end
+end)
+
+ButtonRow("MISC", "Optimize FFlags (FPS Unlock)", function()
+    pcall(function()
+        setfpscap(240)
+        if setfflag then
+            setfflag("TaskSchedulerTargetFps", "240")
+        end
+    end)
+end)
+
+Section("MISC", "🔄 server utilities")
+ButtonRow("MISC", "Rejoin Server", function()
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP)
+end)
+
+ButtonRow("MISC", "Server Hop (New Server)", function()
+    local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/"..game.PlaceId.."/servers/Public?sortOrder=Asc&limit=100")).data
+    for _, s in pairs(servers) do
+        if s.id ~= game.JobId and s.playing < s.maxPlayers then
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LP)
+            break
+        end
+    end
+end)
+
+OpenTab("AIM")
+
+--// ============================================================
+--// SILENT AIM SHOOTING FLOATING BUTTON
+--// ============================================================
+
+local ShootBtn = Instance.new("TextButton")
+ShootBtn.Name = "SilentAimShootBtn"
+ShootBtn.Size = UDim2.fromOffset(50, 50); ShootBtn.Position = UDim2.new(0.85, 0, 0.7, 0)
+ShootBtn.BackgroundColor3 = C.Red; ShootBtn.Text = "FIRE"; ShootBtn.TextColor3 = C.White
+ShootBtn.TextSize = 12; ShootBtn.Font = Enum.Font.GothamBlack; ShootBtn.Visible = false
+ShootBtn.ZIndex = 999; ShootBtn.Parent = Gui
+Rnd(ShootBtn, 25); Str(ShootBtn, C.White, 1.5)
+MakeDrag(ShootBtn, ShootBtn)
+
+task.spawn(function()
+    while Gui and Gui.Parent do
+        task.wait(0.2)
+        if ShootBtn and ShootBtn.Parent then ShootBtn.Visible = Cfg.SilentAimOn end
+    end
+end)
+
+local SilentTarget = nil
+local function GetRole(player)
+    if not player or not player.Parent then return "innocent" end
+    local char = player.Character
+    local bag  = player:FindFirstChildOfClass("Backpack")
+
+    local toolList = {}
+    if char then for _, t in pairs(char:GetChildren()) do if t:IsA("Tool") then table.insert(toolList, t) end end end
+    if bag then for _, t in pairs(bag:GetChildren()) do if t:IsA("Tool") then table.insert(toolList, t) end end end
+
+    for _, tool in pairs(toolList) do
+        local n = tool.Name:lower()
+        if n:find("knife") or n == "ghostify" or n:find("blade") then return "murderer" end
+        if n == "sheriff" or n:find("revolver") or n:find("gun") or n:find("pistol") then return "sheriff" end
+    end
+    return "innocent"
+end
+
+ShootBtn.MouseButton1Click:Connect(function()
+    for _, pl in pairs(Players:GetPlayers()) do
+        if pl ~= LP and GetRole(pl) == "murderer" then
+            local char = pl.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then SilentTarget = root task.wait(0.1) end
+        end
+    end
+end)
+
+pcall(function()
+    local mt = getrawmetatable(Mouse)
+    local old = mt.__index
+    setreadonly(mt, false)
+    mt.__index = newcclosure(function(self, key)
+        if Cfg.SilentAimOn and SilentTarget and SilentTarget.Parent then
+            if key == "Hit" then return CFrame.new(SilentTarget.Position) end
+            if key == "UnitRay" then return Ray.new(Camera.CFrame.Position, (SilentTarget.Position - Camera.CFrame.Position).Unit * 2000) end
+            if key == "Target" then return SilentTarget end
+        end
+        return old(self, key)
+    end)
+    setreadonly(mt, true)
+end)
+
+--// ============================================================
+--// FLY CONTROL
+--// ============================================================
+
+local BodyVelocityInstance, BodyGyroInstance = nil, nil
+function ToggleFly(state)
+    if state then
+        local char = LP.Character or LP.CharacterAdded:Wait()
+        local root = char:WaitForChild("HumanoidRootPart", 5)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum then return end
+
+        BodyVelocityInstance = Instance.new("BodyVelocity")
+        BodyVelocityInstance.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        BodyVelocityInstance.Velocity = Vector3.new(0, 0, 0)
+        BodyVelocityInstance.Parent = root
+
+        BodyGyroInstance = Instance.new("BodyGyro")
+        BodyGyroInstance.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        BodyGyroInstance.P = 9e4; BodyGyroInstance.Parent = root
+
+        task.spawn(function()
+            while Cfg.FlyOn and root and hum and BodyVelocityInstance and BodyGyroInstance do
+                hum.PlatformStand = true
+                BodyGyroInstance.CFrame = Camera.CFrame
+                BodyVelocityInstance.Velocity = Camera.CFrame:VectorToWorldSpace(hum.MoveDirection) * Cfg.FlySpeed
+                RunService.RenderStepped:Wait()
+            end
+            if BodyVelocityInstance then BodyVelocityInstance:Destroy() end
+            if BodyGyroInstance then BodyGyroInstance:Destroy() end
+            if hum then hum.PlatformStand = false end
+        end)
+    else
+        if BodyVelocityInstance then BodyVelocityInstance:Destroy() end
+        if BodyGyroInstance then BodyGyroInstance:Destroy() end
+        if LP.Character and LP.Character:FindFirstChildOfClass("Humanoid") then
+            LP.Character:FindFirstChildOfClass("Humanoid").PlatformStand = false
+        end
+    end
+end
+
+--// ============================================================
+--// PLAYER LOOPS & STATS
+--// ============================================================
+
+RunService.Heartbeat:Connect(function()
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health > 0 then
+        if Cfg.SpeedOn then hum.WalkSpeed = Cfg.SpeedVal end
+        if Cfg.JumpOn then
+            if hum.UseJumpPower then hum.JumpPower = Cfg.JumpVal else hum.JumpHeight = Cfg.JumpVal end
+        end
+        if Cfg.AutoJumpOn and hum.FloorMaterial ~= Enum.Material.Air then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if Cfg.InfJumpOn and LP.Character then
+        local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if Cfg.NoclipOn and LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end
+end)
+
+--// ============================================================
+--// AUTO COIN (Instant Skip on Touch)
+--// ============================================================
+
+local isTweeningCoin = false
+task.spawn(function()
+    while Gui and Gui.Parent do
+        task.wait(0.1)
+        if Cfg.AutoCoinOn and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = LP.Character.HumanoidRootPart
+            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+
+            if hum and hum.Health > 0 and not isTweeningCoin then
+                local targetCoin = nil
+                local minDist = math.huge
+
+                for _, obj in pairs(workspace:GetDescendants()) do
+                    if obj.Name == "Coin_Server" or obj.Name:lower():find("coin") then
+                        if obj:IsA("BasePart") or (obj:IsA("Model") and obj.PrimaryPart) then
+                            local pos = obj:IsA("BasePart") and obj.Position or obj.PrimaryPart.Position
+                            local dist = (hrp.Position - pos).Magnitude
+                            if dist < minDist then
+                                minDist = dist
+                                targetCoin = obj
+                            end
+                        end
+                    end
+                end
+
+                if targetCoin and targetCoin.Parent then
+                    isTweeningCoin = true
+                    local originalNoclip = Cfg.NoclipOn
+                    Cfg.NoclipOn = true
+
+                    local cPos = targetCoin:IsA("BasePart") and targetCoin.Position or targetCoin.PrimaryPart.Position
+                    local dist = (hrp.Position - cPos).Magnitude
+                    local duration = math.clamp(dist / Cfg.CoinSpeed, 0.05, 4)
+
+                    local coinTween = Tw(hrp, duration, {CFrame = CFrame.new(cPos)})
+                    if coinTween then
+                        coinTween:Play()
+                        while coinTween.PlaybackState == Enum.PlaybackState.Playing and targetCoin and targetCoin.Parent do
+                            task.wait()
+                            local curPos = targetCoin:IsA("BasePart") and targetCoin.Position or targetCoin.PrimaryPart.Position
+                            if (hrp.Position - curPos).Magnitude <= 2.5 then
+                                coinTween:Cancel()
+                                break
+                            end
+                        end
+                    end
+
+                    if not originalNoclip then Cfg.NoclipOn = false end
+                    isTweeningCoin = false
+                end
+            end
+        end
+    end
+end)
+
+--// ============================================================
+--// KEEP GUN
+--// ============================================================
+
+local isGrabbingGun = false
+task.spawn(function()
+    while Gui and Gui.Parent do
+        task.wait(0.2)
+        if Cfg.KeepGunOn and not isGrabbingGun and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = LP.Character.HumanoidRootPart
+            local hum = LP.Character:FindFirstChildOfClass("Humanoid")
+
+            if hum and hum.Health > 0 then
+                local foundGun = nil
+                for _, mapFolder in pairs(workspace:GetChildren()) do
+                    local gunDrop = mapFolder:FindFirstChild("GunDrop")
+                    if gunDrop and gunDrop:IsA("BasePart") then
+                        foundGun = gunDrop
+                        break
+                    end
+                end
+
+                if foundGun then
+                    isGrabbingGun = true
+                    local oldPos = hrp.CFrame
+                    hrp.CFrame = foundGun.CFrame + Vector3.new(0, 1, 0)
+                    task.wait(0.2)
+                    if hrp and hum and hum.Health > 0 then hrp.CFrame = oldPos end
+                    task.wait(0.5)
+                    isGrabbingGun = false
+                end
+            end
+        end
+    end
+end)
+
+--// ============================================================
+--// LIVE STATS UPDATE & ESP RENDER
+--// ============================================================
+
+local function GetMyRole()
+    local r = GetRole(LP)
+    return r, ROLE_COLOR[r] or C.Green
+end
+
+RunService.RenderStepped:Connect(function()
+    local myRole, myColor = GetMyRole()
+    RoleDispL.Text = "role: " .. myRole; RoleDispL.TextColor3 = myColor
+
+    local murdName, sherName = "—", "—"
+    for _, pl in pairs(Players:GetPlayers()) do
+        if pl ~= LP then
+            local role = GetRole(pl)
+            if role == "murderer" then murdName = pl.Name end
+            if role == "sheriff"  then sherName = pl.Name end
+        end
+    end
+
+    LiveBox.Set("murderer", murdName, C.Red)
+    LiveBox.Set("sheriff",  sherName, C.Blue)
+    LiveBox.Set("my role",  myRole,   myColor)
+end)
+
+function ClearRoleESP()
+    for _, t in pairs(ESPObjects) do for _, d in pairs(t) do pcall(function() d:Remove() end) end end
+    ESPObjects = {}
+end
+
+function ClearGunESP()
+    for _, d in pairs(GunESPObjects) do pcall(function() d:Remove() end) end
+    GunESPObjects = {}
+end
+
+Players.PlayerRemoving:Connect(function(player)
+    if player == LP then getgenv().ILLUSION_HUB_LOADED = nil end
+end)
+
+Gui.AncestryChanged:Connect(function()
+    if not Gui.Parent then
+        getgenv().ILLUSION_HUB_LOADED = nil
+        ClearRoleESP()
+        ClearGunESP()
+        if ShootBtn then ShootBtn:Destroy() end
+    end
+end)
