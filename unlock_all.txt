@@ -3176,3 +3176,13 @@ end
 -- START
 -- ================================================================
 hook.Toggle(true)
+
+task.spawn(function()
+while task.wait(1) do
+if _G.unlockall then
+Cfg.unlockall = true
+else
+Cfg.unlockall = false
+end
+end
+end)
