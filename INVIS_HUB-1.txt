@@ -1,0 +1,1009 @@
+-- INVIS HUB
+-- วางเป็น LocalScript ใน StarterPlayerScripts
+-- RightShift = เปิด/ปิด (มือถือกดปุ่ม I ที่ขอบซ้าย)
+
+-- services
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UIS              = game:GetService("UserInputService")
+local RunService       = game:GetService("RunService")
+local Lighting         = game:GetService("Lighting")
+local Stats            = game:GetService("Stats")
+local Workspace        = game:GetService("Workspace")
+local TeleportService  = game:GetService("TeleportService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
+
+if _G.INVIS_HUB_UNLOAD then pcall(_G.INVIS_HUB_UNLOAD) end
+local old = PlayerGui:FindFirstChild("INVIS_HUB")
+if old then old:Destroy() end
+
+-- helper
+local Connections = {}
+local function connect(signal, fn)
+	local c = signal:Connect(fn)
+	table.insert(Connections, c)
+	return c
+end
+
+local function create(class, props, children)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do
+		if k ~= "Parent" then o[k] = v end
+	end
+	for _, c in ipairs(children or {}) do c.Parent = o end
+	if props and props.Parent then o.Parent = props.Parent end
+	return o
+end
+
+local function tween(o, t, p, style, dir)
+	local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), p)
+	tw:Play()
+	return tw
+end
+
+local function corner(r) return create("UICorner", {CornerRadius = UDim.new(0, r)}) end
+
+-- ธีมสี
+local Themes = {
+	["Purple Blue"] = {
+		Background = Color3.fromRGB(14, 10, 28), Sidebar = Color3.fromRGB(20, 14, 42),
+		Element = Color3.fromRGB(32, 23, 62), Accent = Color3.fromRGB(150, 80, 255),
+		Accent2 = Color3.fromRGB(60, 170, 255), Text = Color3.fromRGB(242, 238, 255),
+		SubText = Color3.fromRGB(165, 155, 205),
+	},
+	["Neon"] = {
+		Background = Color3.fromRGB(8, 10, 24), Sidebar = Color3.fromRGB(12, 16, 38),
+		Element = Color3.fromRGB(20, 28, 62), Accent = Color3.fromRGB(0, 200, 255),
+		Accent2 = Color3.fromRGB(190, 70, 255), Text = Color3.fromRGB(235, 248, 255),
+		SubText = Color3.fromRGB(140, 170, 210),
+	},
+	["Ocean"] = {
+		Background = Color3.fromRGB(6, 14, 30), Sidebar = Color3.fromRGB(9, 22, 46),
+		Element = Color3.fromRGB(16, 38, 72), Accent = Color3.fromRGB(50, 130, 255),
+		Accent2 = Color3.fromRGB(120, 100, 255), Text = Color3.fromRGB(235, 244, 255),
+		SubText = Color3.fromRGB(140, 165, 205),
+	},
+	["Amethyst"] = {
+		Background = Color3.fromRGB(20, 8, 30), Sidebar = Color3.fromRGB(30, 12, 44),
+		Element = Color3.fromRGB(50, 22, 72), Accent = Color3.fromRGB(190, 90, 255),
+		Accent2 = Color3.fromRGB(255, 110, 200), Text = Color3.fromRGB(252, 238, 255),
+		SubText = Color3.fromRGB(190, 150, 210),
+	},
+}
+local ThemeOrder = {"Purple Blue", "Neon", "Ocean", "Amethyst"}
+local ThemeName = ThemeOrder[1]
+local Theme = Themes[ThemeName]
+
+local State = {
+	Animated = true, Rainbow = false, Custom = false,
+	WalkSpeed = 16, JumpPower = 50, FlySpeed = 60,
+	InfJump = false, Fly = false, Noclip = false,
+	Fullbright = false, NoFog = false,
+}
+
+local Reg, spinList = {}, {}
+local function onTheme(fn) table.insert(Reg, fn); fn(Theme, true) end
+local function bind(obj, prop, key)
+	onTheme(function(t, init)
+		if init then obj[prop] = t[key] else tween(obj, .35, {[prop] = t[key]}) end
+	end)
+end
+local function gradAccent(g)
+	onTheme(function(t) g.Color = ColorSequence.new(t.Accent, t.Accent2) end)
+end
+local function SetTheme(name)
+	if not Themes[name] then return end
+	ThemeName, Theme = name, Themes[name]
+	for _, fn in ipairs(Reg) do fn(Theme, false) end
+end
+
+-- gui หลัก
+local Gui = create("ScreenGui", {
+	Name = "INVIS_HUB", ResetOnSpawn = false, IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999, Parent = PlayerGui,
+})
+
+local Main = create("Frame", {
+	Name = "Main", AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(.5, .5),
+	Size = UDim2.fromOffset(580, 360), BackgroundColor3 = Color3.new(1, 1, 1),
+	BorderSizePixel = 0, ClipsDescendants = true, Visible = false, Parent = Gui,
+}, {corner(14)})
+local Scale = create("UIScale", {Scale = 0, Parent = Main})
+local BgGrad = create("UIGradient", {Rotation = 45, Parent = Main})
+local MainStroke = create("UIStroke", {Thickness = 2, Color = Color3.new(1, 1, 1), Parent = Main})
+local StrokeGrad = create("UIGradient", {Parent = MainStroke})
+
+onTheme(function(t)
+	BgGrad.Color = ColorSequence.new(t.Background, t.Background:Lerp(t.Accent, .16))
+	if State.Rainbow then
+		local k = {}
+		for i = 0, 5 do table.insert(k, ColorSequenceKeypoint.new(i / 5, Color3.fromHSV(i / 5, .8, 1))) end
+		StrokeGrad.Color = ColorSequence.new(k)
+	else
+		StrokeGrad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, t.Accent), ColorSequenceKeypoint.new(.5, t.Accent2),
+			ColorSequenceKeypoint.new(1, t.Accent),
+		})
+	end
+end)
+
+-- แถบบน
+local Top = create("Frame", {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, Parent = Main})
+local Title = create("TextLabel", {
+	Position = UDim2.fromOffset(16, 0), Size = UDim2.fromOffset(120, 42), BackgroundTransparency = 1,
+	Text = "INVIS HUB", Font = Enum.Font.GothamBlack, TextSize = 20, TextColor3 = Color3.new(1, 1, 1),
+	TextXAlignment = Enum.TextXAlignment.Left, Parent = Top,
+})
+local TitleGrad = create("UIGradient", {Parent = Title})
+gradAccent(TitleGrad)
+table.insert(spinList, {TitleGrad, 40})
+local Ver = create("TextLabel", {
+	Position = UDim2.fromOffset(130, 2), Size = UDim2.fromOffset(80, 42), BackgroundTransparency = 1,
+	Text = "v1.0", Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = Top,
+})
+bind(Ver, "TextColor3", "SubText")
+
+local Line = create("Frame", {
+	Position = UDim2.fromOffset(12, 42), Size = UDim2.new(1, -24, 0, 1),
+	BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = Main,
+})
+local LineGrad = create("UIGradient", {Parent = Line})
+gradAccent(LineGrad)
+
+local function topButton(txt, xOff)
+	local b = create("TextButton", {
+		AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, xOff, .5, 0), Size = UDim2.fromOffset(28, 28),
+		Text = txt, Font = Enum.Font.GothamBold, TextSize = 16, AutoButtonColor = false,
+		BackgroundTransparency = .3, Parent = Top,
+	}, {corner(8)})
+	bind(b, "BackgroundColor3", "Element")
+	bind(b, "TextColor3", "Text")
+	b.MouseEnter:Connect(function() tween(b, .2, {BackgroundTransparency = 0}) end)
+	b.MouseLeave:Connect(function() tween(b, .2, {BackgroundTransparency = .3}) end)
+	return b
+end
+local BtnClose = topButton("×", -10)
+local BtnMin = topButton("–", -44)
+
+-- ลากหน้าต่าง
+do
+	local dragging, dragStart, startPos
+	Top.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging, dragStart, startPos = true, input.Position, Main.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+	connect(UIS.InputChanged, function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local d = input.Position - dragStart
+			Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end)
+end
+
+-- sidebar กับพื้นที่เนื้อหา
+local Sidebar = create("Frame", {
+	Position = UDim2.fromOffset(10, 52), Size = UDim2.new(0, 130, 1, -62),
+	BackgroundTransparency = .3, BorderSizePixel = 0, Parent = Main,
+}, {
+	corner(10),
+	create("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}),
+	create("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}),
+})
+bind(Sidebar, "BackgroundColor3", "Sidebar")
+
+local Content = create("Frame", {
+	Position = UDim2.fromOffset(150, 52), Size = UDim2.new(1, -160, 1, -62),
+	BackgroundTransparency = 1, ClipsDescendants = true, Parent = Main,
+})
+
+-- แจ้งเตือน
+local Toasts = create("Frame", {
+	AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -16, 1, -16),
+	Size = UDim2.fromOffset(260, 400), BackgroundTransparency = 1, Parent = Gui,
+}, {create("UIListLayout", {
+	Padding = UDim.new(0, 8), VerticalAlignment = Enum.VerticalAlignment.Bottom,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+})})
+
+local function Notify(title, text, duration)
+	local holder = create("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, Parent = Toasts})
+	local toast = create("Frame", {
+		Position = UDim2.new(1.2, 0, 0, 0), Size = UDim2.fromScale(1, 1), BackgroundTransparency = .05,
+		BorderSizePixel = 0, Parent = holder,
+	}, {corner(10)})
+	bind(toast, "BackgroundColor3", "Sidebar")
+	local st = create("UIStroke", {Thickness = 1.5, Color = Color3.new(1, 1, 1), Parent = toast})
+	gradAccent(create("UIGradient", {Parent = st}))
+	local bar = create("Frame", {
+		Position = UDim2.fromOffset(8, 10), Size = UDim2.new(0, 3, 1, -20),
+		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = toast,
+	}, {corner(2)})
+	gradAccent(create("UIGradient", {Rotation = 90, Parent = bar}))
+	local t1 = create("TextLabel", {
+		Position = UDim2.fromOffset(20, 7), Size = UDim2.new(1, -28, 0, 18), BackgroundTransparency = 1,
+		Text = title, Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, Parent = toast,
+	})
+	bind(t1, "TextColor3", "Text")
+	local t2 = create("TextLabel", {
+		Position = UDim2.fromOffset(20, 26), Size = UDim2.new(1, -28, 0, 20), BackgroundTransparency = 1,
+		Text = text, Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, Parent = toast,
+	})
+	bind(t2, "TextColor3", "SubText")
+	tween(toast, .5, {Position = UDim2.new(0, 0, 0, 0)}, Enum.EasingStyle.Back)
+	task.delay(duration or 3, function()
+		if not toast.Parent then return end
+		tween(toast, .4, {Position = UDim2.new(1.2, 0, 0, 0)}, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		task.wait(.45)
+		holder:Destroy()
+	end)
+end
+
+-- ระบบแท็บ
+local Tabs, CurrentTab = {}, nil
+
+local function paintTab(tab)
+	local active = CurrentTab == tab
+	tween(tab.Button, .25, {BackgroundColor3 = Theme.Element, BackgroundTransparency = active and .05 or 1})
+	tween(tab.Bar, .25, {
+		BackgroundColor3 = Theme.Accent2, BackgroundTransparency = active and 0 or 1,
+		Size = active and UDim2.fromOffset(3, 18) or UDim2.fromOffset(3, 0),
+	})
+	tween(tab.Label, .25, {TextColor3 = active and Theme.Text or Theme.SubText})
+end
+
+local function selectTab(tab)
+	if CurrentTab == tab then return end
+	CurrentTab = tab
+	for _, t in ipairs(Tabs) do
+		t.Page.Visible = (t == tab)
+		paintTab(t)
+	end
+	tab.Page.Position = UDim2.fromOffset(0, 18)
+	tween(tab.Page, .4, {Position = UDim2.fromOffset(0, 0)})
+end
+
+local function makeBox(page, h)
+	local f = create("Frame", {
+		Size = UDim2.new(1, 0, 0, h), BackgroundTransparency = .2, BorderSizePixel = 0, Parent = page,
+	}, {corner(8)})
+	bind(f, "BackgroundColor3", "Element")
+	local s = create("UIStroke", {Thickness = 1, Transparency = .75, Parent = f})
+	bind(s, "Color", "Accent")
+	f.MouseEnter:Connect(function() tween(s, .2, {Transparency = .3}) end)
+	f.MouseLeave:Connect(function() tween(s, .2, {Transparency = .75}) end)
+	return f
+end
+
+local function label(parent, props, key)
+	props.BackgroundTransparency = 1
+	props.Parent = parent
+	props.Font = props.Font or Enum.Font.GothamMedium
+	local l = create("TextLabel", props)
+	bind(l, "TextColor3", key or "Text")
+	return l
+end
+
+local function CreateTab(name, icon)
+	local tab = {}
+	tab.Button = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 34), BackgroundTransparency = 1, Text = "",
+		AutoButtonColor = false, LayoutOrder = #Tabs + 1, Parent = Sidebar,
+	}, {corner(8)})
+	tab.Bar = create("Frame", {
+		AnchorPoint = Vector2.new(0, .5), Position = UDim2.new(0, 3, .5, 0), Size = UDim2.fromOffset(3, 0),
+		BackgroundTransparency = 1, BorderSizePixel = 0, Parent = tab.Button,
+	}, {corner(2)})
+	tab.Label = create("TextLabel", {
+		Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -14, 1, 0), BackgroundTransparency = 1,
+		Text = icon .. "  " .. name, Font = Enum.Font.GothamMedium, TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left, Parent = tab.Button,
+	})
+	tab.Page = create("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 3, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
+		Visible = false, Parent = Content,
+	}, {
+		create("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}),
+		create("UIPadding", {PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10)}),
+	})
+	bind(tab.Page, "ScrollBarImageColor3", "Accent")
+	tab.Button.MouseEnter:Connect(function()
+		if CurrentTab ~= tab then tween(tab.Button, .2, {BackgroundTransparency = .7, BackgroundColor3 = Theme.Element}) end
+	end)
+	tab.Button.MouseLeave:Connect(function() paintTab(tab) end)
+	tab.Button.MouseButton1Click:Connect(function() selectTab(tab) end)
+	onTheme(function() paintTab(tab) end)
+	table.insert(Tabs, tab)
+
+	local page = tab.Page
+	local api = {}
+
+	function api:AddSection(title)
+		local l = label(page, {
+			Size = UDim2.new(1, 0, 0, 20), Text = "  " .. string.upper(title), Font = Enum.Font.GothamBold,
+			TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
+		}, "Accent2")
+		return l
+	end
+
+	function api:AddLabel(text)
+		local f = makeBox(page, 34)
+		local l = label(f, {
+			Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 1, 0), Text = text, TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
+		}, "SubText")
+		return {Set = function(_, v) l.Text = v end}
+	end
+
+	function api:AddButton(text, callback)
+		local f = makeBox(page, 36)
+		local b = create("TextButton", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = text, Font = Enum.Font.GothamMedium,
+			TextSize = 13, AutoButtonColor = false, Parent = f,
+		})
+		bind(b, "TextColor3", "Text")
+		b.MouseButton1Click:Connect(function()
+			tween(f, .08, {BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0})
+			task.delay(.1, function()
+				tween(f, .4, {BackgroundColor3 = Theme.Element, BackgroundTransparency = .2})
+			end)
+			if callback then task.spawn(callback) end
+		end)
+	end
+
+	function api:AddToggle(text, default, callback)
+		local f = makeBox(page, 38)
+		label(f, {
+			Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -70, 1, 0), Text = text, TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		})
+		local track = create("Frame", {
+			AnchorPoint = Vector2.new(1, .5), Position = UDim2.new(1, -12, .5, 0), Size = UDim2.fromOffset(40, 20),
+			BorderSizePixel = 0, Parent = f,
+		}, {corner(10)})
+		local knob = create("Frame", {
+			Size = UDim2.fromOffset(14, 14), Position = UDim2.new(0, 3, .5, -7), BackgroundColor3 = Color3.new(1, 1, 1),
+			BorderSizePixel = 0, Parent = track,
+		}, {corner(7)})
+		local state = default or false
+		local function paint(instant)
+			local ti = instant and 0 or .25
+			tween(track, ti, {BackgroundColor3 = state and Theme.Accent or Theme.Background})
+			tween(knob, ti, {Position = state and UDim2.new(1, -17, .5, -7) or UDim2.new(0, 3, .5, -7)}, Enum.EasingStyle.Back)
+		end
+		onTheme(function() paint() end)
+		paint(true)
+		local hit = create("TextButton", {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", Parent = f})
+		hit.MouseButton1Click:Connect(function()
+			state = not state
+			paint()
+			if callback then task.spawn(callback, state) end
+		end)
+		return {Set = function(_, v) state = v; paint() end}
+	end
+
+	function api:AddSlider(text, min, max, default, inc, callback)
+		inc = inc or 1
+		local f = makeBox(page, 52)
+		label(f, {
+			Position = UDim2.fromOffset(12, 5), Size = UDim2.new(1, -90, 0, 20), Text = text, TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		})
+		local val = label(f, {
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 5), Size = UDim2.fromOffset(70, 20),
+			Text = "", Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right,
+		}, "Accent2")
+		local track = create("Frame", {
+			Position = UDim2.new(0, 12, 1, -17), Size = UDim2.new(1, -24, 0, 6), BorderSizePixel = 0, Parent = f,
+		}, {corner(3)})
+		bind(track, "BackgroundColor3", "Background")
+		local fill = create("Frame", {
+			Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = track,
+		}, {corner(3)})
+		gradAccent(create("UIGradient", {Parent = fill}))
+		create("Frame", {
+			AnchorPoint = Vector2.new(.5, .5), Position = UDim2.fromScale(1, .5), Size = UDim2.fromOffset(13, 13),
+			BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, Parent = fill,
+		}, {corner(7)})
+
+		local function set(v, fire)
+			v = math.clamp(math.floor(v / inc + .5) * inc, min, max)
+			v = math.floor(v * 100 + .5) / 100
+			tween(fill, .08, {Size = UDim2.fromScale((v - min) / (max - min), 1)})
+			val.Text = tostring(v)
+			if fire and callback then task.spawn(callback, v) end
+		end
+		set(default or min, false)
+
+		local dragging = false
+		local function fromInput(input)
+			local rel = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+			set(min + (max - min) * rel, true)
+		end
+		local hit = create("TextButton", {
+			Position = UDim2.new(0, 0, 1, -32), Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Text = "", Parent = f,
+		})
+		hit.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				page.ScrollingEnabled = false
+				fromInput(input)
+			end
+		end)
+		connect(UIS.InputChanged, function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				fromInput(input)
+			end
+		end)
+		connect(UIS.InputEnded, function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = false
+				page.ScrollingEnabled = true
+			end
+		end)
+	end
+
+	function api:AddDropdown(text, options, default, callback)
+		local f = makeBox(page, 38)
+		f.ClipsDescendants = true
+		label(f, {
+			Position = UDim2.fromOffset(12, 0), Size = UDim2.new(.5, 0, 0, 38), Text = text, TextSize = 13,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		})
+		local sel = label(f, {
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(.5, -12, 0, 38),
+			Text = (default or options[1]) .. "  ▾", Font = Enum.Font.GothamBold, TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Right,
+		}, "Accent2")
+		local listH = #options * 30
+		local list = create("Frame", {
+			Position = UDim2.fromOffset(8, 44), Size = UDim2.new(1, -16, 0, listH), BackgroundTransparency = 1, Parent = f,
+		}, {create("UIListLayout", {Padding = UDim.new(0, 4)})})
+		local open = false
+		local function setOpen(v)
+			open = v
+			tween(f, .35, {Size = UDim2.new(1, 0, 0, v and (38 + 12 + listH) or 38)}, Enum.EasingStyle.Quint)
+		end
+		for _, opt in ipairs(options) do
+			local b = create("TextButton", {
+				Size = UDim2.new(1, 0, 0, 26), Text = opt, Font = Enum.Font.GothamMedium, TextSize = 12,
+				AutoButtonColor = false, BackgroundTransparency = .2, Parent = list,
+			}, {corner(6)})
+			bind(b, "BackgroundColor3", "Background")
+			bind(b, "TextColor3", "Text")
+			b.MouseButton1Click:Connect(function()
+				sel.Text = opt .. "  ▾"
+				setOpen(false)
+				if callback then task.spawn(callback, opt) end
+			end)
+		end
+		local head = create("TextButton", {Size = UDim2.new(1, 0, 0, 38), BackgroundTransparency = 1, Text = "", Parent = f})
+		head.MouseButton1Click:Connect(function() setOpen(not open) end)
+	end
+
+	function api:AddBanner()
+		local f = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 84), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = .45,
+			BorderSizePixel = 0, ClipsDescendants = true, Parent = page,
+		}, {corner(12)})
+		local g = create("UIGradient", {Rotation = 20, Parent = f})
+		gradAccent(g)
+		table.insert(spinList, {g, 25})
+		local av = create("ImageLabel", {
+			Position = UDim2.fromOffset(14, 14), Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Color3.new(0, 0, 0),
+			BackgroundTransparency = .4, Image = "rbxthumb://type=AvatarHeadShot&id=" .. LocalPlayer.UserId .. "&w=150&h=150",
+			Parent = f,
+		}, {corner(28), create("UIStroke", {Thickness = 2, Color = Color3.new(1, 1, 1)})})
+		create("TextLabel", {
+			Position = UDim2.fromOffset(82, 16), Size = UDim2.new(1, -90, 0, 26), BackgroundTransparency = 1,
+			Text = "Welcome, " .. LocalPlayer.DisplayName, Font = Enum.Font.GothamBlack, TextSize = 18,
+			TextColor3 = Color3.new(1, 1, 1), TextXAlignment = Enum.TextXAlignment.Left, Parent = f,
+		})
+		create("TextLabel", {
+			Position = UDim2.fromOffset(82, 42), Size = UDim2.new(1, -90, 0, 20), BackgroundTransparency = 1,
+			Text = "@" .. LocalPlayer.Name .. "  •  INVIS HUB", Font = Enum.Font.Gotham, TextSize = 12,
+			TextColor3 = Color3.fromRGB(235, 235, 255), TextXAlignment = Enum.TextXAlignment.Left, Parent = f,
+		})
+	end
+
+	function api:AddCards(names)
+		local grid = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Parent = page,
+		}, {create("UIGridLayout", {
+			CellSize = UDim2.new(.5, -4, 0, 60), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+		})})
+		local out = {}
+		for i, n in ipairs(names) do
+			local c = create("Frame", {BackgroundTransparency = .2, BorderSizePixel = 0, LayoutOrder = i, Parent = grid}, {corner(10)})
+			bind(c, "BackgroundColor3", "Element")
+			local s = create("UIStroke", {Thickness = 1, Transparency = .7, Parent = c})
+			bind(s, "Color", "Accent")
+			label(c, {
+				Position = UDim2.fromOffset(12, 7), Size = UDim2.new(1, -24, 0, 16), Text = string.upper(n), TextSize = 10,
+				Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left,
+			}, "SubText")
+			local v = create("TextLabel", {
+				Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -24, 0, 28), BackgroundTransparency = 1,
+				Text = "--", Font = Enum.Font.GothamBlack, TextSize = 21, TextColor3 = Color3.new(1, 1, 1),
+				TextXAlignment = Enum.TextXAlignment.Left, Parent = c,
+			})
+			gradAccent(create("UIGradient", {Parent = v}))
+			out[n] = v
+		end
+		return out
+	end
+
+	return api
+end
+
+-- ฟังก์ชันต่างๆ
+local function getChar() return LocalPlayer.Character end
+local function getHum() local c = getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+local function getRoot() local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+
+local function applyMovement()
+	local h = getHum()
+	if h and State.Custom then
+		h.WalkSpeed = State.WalkSpeed
+		h.UseJumpPower = true
+		h.JumpPower = State.JumpPower
+	end
+end
+
+connect(UIS.JumpRequest, function()
+	if State.InfJump then
+		local h = getHum()
+		if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end
+end)
+
+local noclipConn
+local function setNoclip(on)
+	State.Noclip = on
+	if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
+	if on then
+		noclipConn = RunService.Stepped:Connect(function()
+			local c = getChar()
+			if c then
+				for _, p in ipairs(c:GetDescendants()) do
+					if p:IsA("BasePart") then p.CanCollide = false end
+				end
+			end
+		end)
+	end
+end
+
+local flyConn, flyBV, flyBG
+local function stopFly()
+	if flyConn then flyConn:Disconnect(); flyConn = nil end
+	if flyBV then flyBV:Destroy(); flyBV = nil end
+	if flyBG then flyBG:Destroy(); flyBG = nil end
+	local h = getHum()
+	if h then h.PlatformStand = false end
+end
+local function startFly()
+	stopFly()
+	local hrp, hum = getRoot(), getHum()
+	if not hrp or not hum then return end
+	flyBV = create("BodyVelocity", {MaxForce = Vector3.one * 1e5, Velocity = Vector3.zero, Parent = hrp})
+	flyBG = create("BodyGyro", {MaxTorque = Vector3.one * 1e5, P = 1e4, CFrame = hrp.CFrame, Parent = hrp})
+	hum.PlatformStand = true
+	flyConn = RunService.RenderStepped:Connect(function()
+		local cam = Workspace.CurrentCamera
+		local vert = 0
+		if UIS:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then vert = 1
+		elseif UIS:IsKeyDown(Enum.KeyCode.LeftControl) then vert = -1 end
+		flyBV.Velocity = hum.MoveDirection * State.FlySpeed + Vector3.new(0, vert * State.FlySpeed, 0)
+		flyBG.CFrame = cam.CFrame
+	end)
+end
+local function setFly(on)
+	State.Fly = on
+	if on then startFly() else stopFly() end
+end
+
+connect(LocalPlayer.CharacterAdded, function()
+	task.wait(.6)
+	applyMovement()
+	if State.Fly then startFly() end
+end)
+
+local Orig = {
+	Brightness = Lighting.Brightness, GlobalShadows = Lighting.GlobalShadows,
+	Ambient = Lighting.Ambient, OutdoorAmbient = Lighting.OutdoorAmbient, FogEnd = Lighting.FogEnd,
+}
+local function setFullbright(on)
+	State.Fullbright = on
+	if on then
+		Lighting.Brightness = 2
+		Lighting.GlobalShadows = false
+		Lighting.Ambient = Color3.new(1, 1, 1)
+		Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+	else
+		Lighting.Brightness = Orig.Brightness
+		Lighting.GlobalShadows = Orig.GlobalShadows
+		Lighting.Ambient = Orig.Ambient
+		Lighting.OutdoorAmbient = Orig.OutdoorAmbient
+	end
+end
+local function setNoFog(on)
+	State.NoFog = on
+	Lighting.FogEnd = on and 1e6 or Orig.FogEnd
+end
+
+-- สร้างแท็บ
+local Dash     = CreateTab("Dashboard", "🏠")
+local PlayerT  = CreateTab("Player", "🏃")
+local Visuals  = CreateTab("Visuals", "👁")
+local Settings = CreateTab("Settings", "⚙")
+
+-- หน้าแรก
+Dash:AddBanner()
+local cards = Dash:AddCards({"FPS", "Ping", "Players", "Session"})
+Dash:AddSection("Quick Actions")
+Dash:AddButton("Respawn", function()
+	local h = getHum()
+	if h then h.Health = 0 end
+end)
+Dash:AddButton("Rejoin", function()
+	Notify("INVIS HUB", "Rejoining server...", 2)
+	pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer) end)
+end)
+Dash:AddLabel("Game ID: " .. game.PlaceId)
+
+-- ผู้เล่น
+PlayerT:AddSection("Movement")
+PlayerT:AddSlider("Walk Speed", 16, 200, 16, 1, function(v)
+	State.Custom = true; State.WalkSpeed = v; applyMovement()
+end)
+PlayerT:AddSlider("Jump Power", 50, 300, 50, 5, function(v)
+	State.Custom = true; State.JumpPower = v; applyMovement()
+end)
+PlayerT:AddToggle("Infinite Jump", false, function(v) State.InfJump = v end)
+PlayerT:AddToggle("Noclip", false, setNoclip)
+PlayerT:AddSection("Flight")
+PlayerT:AddToggle("Fly  (Space ↑ / Ctrl ↓)", false, function(v)
+	setFly(v)
+	Notify("Fly", v and "Enabled" or "Disabled", 2)
+end)
+PlayerT:AddSlider("Fly Speed", 20, 250, 60, 5, function(v) State.FlySpeed = v end)
+
+-- ภาพ
+Visuals:AddSection("World")
+Visuals:AddToggle("Fullbright", false, setFullbright)
+Visuals:AddToggle("Remove Fog", false, setNoFog)
+Visuals:AddSlider("Time of Day", 0, 24, math.floor(Lighting.ClockTime), 1, function(v) Lighting.ClockTime = v end)
+Visuals:AddSection("Camera")
+Visuals:AddSlider("Field of View", 40, 120, 70, 1, function(v)
+	local cam = Workspace.CurrentCamera
+	if cam then cam.FieldOfView = v end
+end)
+
+-- AUTO FARM MODULE — ใส่ต่อจาก Settings tab ในไฟล์ INVIS_HUB
+-- วางไว้หลัง Settings:AddSection("Other") ก่อนบรรทัด unload
+
+-- ══════════════════════════════════════════
+--  AUTO FARM STATE
+-- ══════════════════════════════════════════
+local FarmState = {
+    Enabled   = false,
+    TargetIdx = 6,      -- workspace.MobFolder:GetChildren()[6]
+    Range     = 50,     -- studs — ตรวจก่อนวาร์ป
+    HoverDist = 12,     -- studs เหนือ monster
+    Delay     = 0.15,   -- วินาทีระหว่างแต่ละ swing
+}
+
+local InputEvent = game.ReplicatedStorage
+    :WaitForChild("Luka's Additional Remotes")
+    :WaitForChild("InputEvent")
+
+local farmConn = nil
+
+local function getRoot()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHum()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+-- หาเป้าหมาย monster ตัวที่ 6 ใน MobFolder
+local function getTarget()
+    local folder = Workspace:FindFirstChild("MobFolder")
+    if not folder then return nil end
+    local mobs = folder:GetChildren()
+    return mobs[FarmState.TargetIdx]
+end
+
+-- หา HumanoidRootPart หรือ PrimaryPart ของ monster
+local function getMonsterRoot(mob)
+    if not mob then return nil end
+    local hrp = mob:FindFirstChild("HumanoidRootPart")
+        or mob:FindFirstChild("Root")
+        or mob:FindFirstChild("Torso")
+        or mob.PrimaryPart
+    return hrp
+end
+
+-- ตรวจว่า monster ยังมีชีวิตอยู่
+local function isAlive(mob)
+    if not mob or not mob.Parent then return false end
+    local hum = mob:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return false end
+    return true
+end
+
+-- วาร์ปขึ้นไปอยู่เหนือ monster 12 studs หันหน้าลงมา
+local function warpAbove(monsterRoot)
+    local hrp = getRoot()
+    if not hrp or not monsterRoot then return false end
+
+    local monPos = monsterRoot.Position
+    local targetPos = monPos + Vector3.new(0, FarmState.HoverDist, 0)
+
+    -- หันหน้าลงหา monster (lookAt = monPos)
+    local lookDir = (monPos - targetPos).Unit
+    local cf = CFrame.new(targetPos, targetPos + lookDir)
+
+    hrp.CFrame = cf
+    return true
+end
+
+-- ดึง tool ดาบใน character
+local function getSword()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    -- หา tool ที่ equipped อยู่ใน character (ไม่ใช่ใน Backpack)
+    for _, v in ipairs(char:GetChildren()) do
+        if v:IsA("Tool") then
+            return v
+        end
+    end
+    return nil
+end
+
+-- ยิง M1 attack ผ่าน InputEvent (เหมือน v_u_33 ใน sword script)
+local function swingSword(tool, monsterPos)
+    if not tool then return end
+    -- ใช้ InputEvent:FireServer(tool, mode, mousePos) ตรงๆ
+    -- mode = nil สำหรับ M1 default (ดูจาก v_u_33 ใน sword script)
+    InputEvent:FireServer(tool, nil, monsterPos)
+end
+
+-- loop หลัก
+local function farmLoop()
+    while FarmState.Enabled do
+        local mob = getTarget()
+
+        if not isAlive(mob) then
+            -- monster ตายแล้ว รอ respawn
+            task.wait(1)
+            continue
+        end
+
+        local monRoot = getMonsterRoot(mob)
+        if not monRoot then
+            task.wait(0.5)
+            continue
+        end
+
+        local hrp = getRoot()
+        if not hrp then
+            task.wait(0.5)
+            continue
+        end
+
+        -- ตรวจระยะก่อนวาร์ป — ต้องอยู่ภายใน 50 studs
+        local dist = (hrp.Position - monRoot.Position).Magnitude
+        if dist <= FarmState.Range then
+            -- วาร์ปขึ้นไปอยู่เหนือ monster
+            warpAbove(monRoot)
+            task.wait(0.05) -- รอให้ CFrame settle
+
+            -- ตีดาบ
+            local sword = getSword()
+            if sword then
+                swingSword(sword, monRoot.Position)
+            end
+        else
+            -- ถ้า monster อยู่ไกลเกิน 50 studs ให้ teleport ตรงๆ ก่อน
+            -- (ครั้งแรก หรือ monster วิ่งหนี)
+            warpAbove(monRoot)
+            task.wait(0.05)
+            local sword = getSword()
+            if sword then
+                swingSword(sword, monRoot.Position)
+            end
+        end
+
+        task.wait(FarmState.Delay)
+    end
+end
+
+local function startFarm()
+    if farmConn then return end
+    FarmState.Enabled = true
+    farmConn = task.spawn(farmLoop)
+    Notify("Auto Farm", "เริ่ม farming monster #" .. FarmState.TargetIdx, 3)
+end
+
+local function stopFarm()
+    FarmState.Enabled = false
+    farmConn = nil
+    Notify("Auto Farm", "หยุด farming", 2)
+end
+
+-- ══════════════════════════════════════════
+--  GUI — เพิ่ม Tab ใหม่ชื่อ "Farm"
+-- ══════════════════════════════════════════
+local FarmT = CreateTab("Farm", "⚔")
+
+FarmT:AddSection("Auto Farm")
+
+FarmT:AddToggle("Enable Auto Farm", false, function(v)
+    if v then startFarm() else stopFarm() end
+end)
+
+FarmT:AddSlider("Monster Index", 1, 20, FarmState.TargetIdx, 1, function(v)
+    FarmState.TargetIdx = v
+    Notify("Farm", "เปลี่ยน target เป็น index #" .. v, 2)
+end)
+
+FarmT:AddSlider("Hover Height (studs)", 5, 30, FarmState.HoverDist, 1, function(v)
+    FarmState.HoverDist = v
+end)
+
+FarmT:AddSlider("Attack Range (studs)", 10, 100, FarmState.Range, 5, function(v)
+    FarmState.Range = v
+end)
+
+FarmT:AddSlider("Attack Delay (ms)", 50, 1000, math.floor(FarmState.Delay * 1000), 50, function(v)
+    FarmState.Delay = v / 1000
+end)
+
+FarmT:AddSection("Status")
+
+FarmT:AddButton("Force Warp to Monster", function()
+    local mob = getTarget()
+    local monRoot = getMonsterRoot(mob)
+    if monRoot then
+        warpAbove(monRoot)
+        Notify("Farm", "Warped เหนือ monster #" .. FarmState.TargetIdx, 2)
+    else
+        Notify("Farm", "ไม่เจอ monster index #" .. FarmState.TargetIdx, 2)
+    end
+end)
+
+FarmT:AddButton("Check Monster Alive", function()
+    local mob = getTarget()
+    if isAlive(mob) then
+        local monRoot = getMonsterRoot(mob)
+        local hrp = getRoot()
+        if monRoot and hrp then
+            local d = math.floor((hrp.Position - monRoot.Position).Magnitude)
+            Notify("Farm", "Monster alive — ระยะ " .. d .. " studs", 3)
+        else
+            Notify("Farm", "Monster alive แต่หา root ไม่เจอ", 3)
+        end
+    else
+        Notify("Farm", "Monster ตายแล้ว หรือไม่มี", 3)
+    end
+end)
+
+-- ตั้งค่า
+local ToggleKey = Enum.KeyCode.RightShift
+Settings:AddSection("Appearance")
+Settings:AddDropdown("Theme", ThemeOrder, ThemeName, function(n)
+	SetTheme(n)
+	Notify("Theme", "Switched to " .. n, 2)
+end)
+Settings:AddToggle("Animated UI", true, function(v) State.Animated = v end)
+Settings:AddToggle("Rainbow Border", false, function(v)
+	State.Rainbow = v
+	SetTheme(ThemeName)
+end)
+Settings:AddSlider("UI Transparency", 0, 60, 0, 5, function(v) Main.BackgroundTransparency = v / 100 end)
+Settings:AddSection("Controls")
+Settings:AddDropdown("Toggle Key", {"RightShift", "LeftControl", "Insert", "K"}, "RightShift", function(k)
+	ToggleKey = Enum.KeyCode[k]
+	Notify("Keybind", "Toggle key: " .. k, 2)
+end)
+Settings:AddSection("Other")
+local unload -- ประกาศไว้ก่อน
+Settings:AddButton("Unload", function() unload() end)
+
+-- ปุ่มลอยสำหรับมือถือ
+local Fab = create("TextButton", {
+	Position = UDim2.new(0, 16, .5, -23), Size = UDim2.fromOffset(46, 46), Text = "I", Font = Enum.Font.GothamBlack,
+	TextSize = 22, AutoButtonColor = false, Parent = Gui,
+}, {corner(23)})
+bind(Fab, "BackgroundColor3", "Background")
+bind(Fab, "TextColor3", "Accent2")
+local fabStroke = create("UIStroke", {Thickness = 2, Color = Color3.new(1, 1, 1), Parent = Fab})
+local fabGrad = create("UIGradient", {Parent = fabStroke})
+gradAccent(fabGrad)
+table.insert(spinList, {fabGrad, 90})
+
+-- เปิด/ปิดหน้าต่าง
+local Opened = false
+local function baseScale()
+	local vp = Gui.AbsoluteSize
+	if vp.X == 0 then return 1 end
+	return math.clamp(math.min(vp.X / 620, vp.Y / 400), .45, 1)
+end
+local function setOpen(v)
+	Opened = v
+	if v then
+		Main.Visible = true
+		tween(Scale, .5, {Scale = baseScale()}, Enum.EasingStyle.Back)
+	else
+		local tw = tween(Scale, .3, {Scale = 0}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		tw.Completed:Connect(function() if not Opened then Main.Visible = false end end)
+	end
+end
+connect(Gui:GetPropertyChangedSignal("AbsoluteSize"), function()
+	if Opened then Scale.Scale = baseScale() end
+end)
+BtnMin.MouseButton1Click:Connect(function() setOpen(false) end)
+BtnClose.MouseButton1Click:Connect(function() unload() end)
+Fab.MouseButton1Click:Connect(function() setOpen(not Opened) end)
+connect(UIS.InputBegan, function(input, gp)
+	if not gp and input.KeyCode == ToggleKey then setOpen(not Opened) end
+end)
+
+-- อัพเดททุกเฟรม
+local startTime, frames, acc = os.time(), 0, 0
+local function fmtTime(s)
+	return string.format("%02d:%02d:%02d", math.floor(s / 3600), math.floor(s % 3600 / 60), s % 60)
+end
+connect(RunService.RenderStepped, function(dt)
+	if State.Animated then
+		StrokeGrad.Rotation = (StrokeGrad.Rotation + dt * 70) % 360
+		BgGrad.Rotation = 45 + math.sin(os.clock() * .6) * 30
+		for _, s in ipairs(spinList) do
+			s[1].Rotation = (s[1].Rotation + dt * s[2]) % 360
+		end
+	end
+	frames += 1
+	acc += dt
+	if acc >= .5 then
+		cards.FPS.Text = tostring(math.floor(frames / acc + .5))
+		local ok, ping = pcall(function() return math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+		cards.Ping.Text = ok and (ping .. " ms") or "N/A"
+		cards.Players.Text = #Players:GetPlayers() .. " / " .. Players.MaxPlayers
+		cards.Session.Text = fmtTime(os.time() - startTime)
+		frames, acc = 0, 0
+	end
+end)
+
+-- ปิดสคริปต์
+unload = function()
+	setFly(false)
+	setNoclip(false)
+	setFullbright(false)
+	setNoFog(false)
+	for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+	if Opened then
+		Opened = false
+		tween(Scale, .25, {Scale = 0}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		task.wait(.3)
+	end
+	stopFarm()
+	Gui:Destroy()
+	_G.INVIS_HUB_UNLOAD = nil
+end
+_G.INVIS_HUB_UNLOAD = unload
+
+-- เริ่มทำงาน
+selectTab(Dash)
+task.wait(.2)
+setOpen(true)
+Notify("INVIS HUB", "โหลดแล้ว กด RightShift เพื่อเปิด/ปิด", 4)
